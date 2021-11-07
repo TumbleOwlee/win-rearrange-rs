@@ -1,7 +1,12 @@
 [package]
-name = "arrange-desktop"
+name = "win-rearrange"
 version = "0.1.0"
+authors = ["David Loewe <49597367+TumbleOwlee@users.noreply.github.com>"]
 edition = "2021"
+description = "CLI tool ro rearrange any windows (in XServer)."
+license = "MIT OR Apache-2.0"
+license-file = "LICENSE"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
