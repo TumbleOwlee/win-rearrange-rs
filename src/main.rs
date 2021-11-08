@@ -264,7 +264,6 @@ fn main() {
     // Iterate over all windows and apply command
     for mut w in tree.into_iter() {
         if re.captures(w.name()).is_some() {
-            println!("FOUND");
             match opt {
                 Opt::Resize {
                     regex: _,
