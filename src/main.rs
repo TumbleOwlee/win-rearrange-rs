@@ -1,9 +1,8 @@
-use std::ffi::CString;
 use std::mem::MaybeUninit;
-use std::os::raw::{c_char, c_int, c_ulong};
+use std::os::raw::{c_int, c_ulong};
 use structopt::StructOpt;
 use x11::xlib::{
-    Display as XDisplay, Window as XWindow, XCloseDisplay, XDefaultScreen, XFetchName,
+    Display as XDisplay, Window as XWindow, XCloseDisplay, XDefaultScreen, XGetWMName, XTextProperty,
     XGetWindowAttributes, XMapWindow, XMoveResizeWindow, XOpenDisplay, XQueryTree, XRaiseWindow,
     XRootWindow, XUnmapWindow, XWindowAttributes,
 };
@@ -31,7 +30,7 @@ struct Tree<'a> {
 
 // Data of window
 struct Window {
-    name: CString,
+    name: String,
     attr: XWindowAttributes,
     window: XWindow,
     display: std::rc::Rc<*mut XDisplay>,
@@ -39,7 +38,7 @@ struct Window {
 
 // Implement method on window
 impl<'a> Window {
-    pub fn name(&'a self) -> &'a CString {
+    pub fn name(&'a self) -> &'a String{
         &self.name
     }
 
@@ -85,20 +84,20 @@ impl<'a> Window {
     }
 
     pub fn resync(&mut self) -> Result<(), ()> {
-        // Create name buffer
-        let mut name_ptr: *mut c_char = std::ptr::null_mut();
+        // Get window name 
+        let mut name = unsafe { MaybeUninit::<XTextProperty>::uninit().assume_init() };
         // Get window attributes
         let mut attr = unsafe { MaybeUninit::<XWindowAttributes>::uninit().assume_init() };
         // Get window name
-        if 0 == unsafe { XFetchName(*self.display, self.window, std::ptr::addr_of_mut!(name_ptr)) }
+        if 0 == unsafe { XGetWMName(*self.display, self.window, std::ptr::addr_of_mut!(name)) }
             || 0 == unsafe {
                 XGetWindowAttributes(*self.display, self.window, std::ptr::addr_of_mut!(attr))
-            }
+            } || name.format != 8
         {
             return Err(());
         }
         // Update name
-        self.name = unsafe { CString::from_raw(name_ptr) };
+        self.name = unsafe { String::from_raw_parts(name.value, name.nitems as usize, name.nitems as usize) };
         self.attr = attr;
         Ok(())
     }
@@ -129,16 +128,16 @@ impl<'a> Iterator for TreeIterator<'a> {
             let window = self.tree.children[self.idx];
             self.tree.children[self.idx] = 0;
             self.idx += 1;
-            // Create name buffer
-            let mut name_ptr: *mut c_char = std::ptr::null_mut();
+            // Get window name 
+            let mut name = unsafe { MaybeUninit::<XTextProperty>::uninit().assume_init() };
             // Get window attributes
             let mut attr = unsafe { MaybeUninit::<XWindowAttributes>::uninit().assume_init() };
             // Get window name
             if 0 == unsafe {
-                XFetchName(
+                XGetWMName(
                     *self.tree.context.display,
                     window,
-                    std::ptr::addr_of_mut!(name_ptr),
+                    std::ptr::addr_of_mut!(name),
                 )
             } || 0
                 == unsafe {
@@ -148,11 +147,12 @@ impl<'a> Iterator for TreeIterator<'a> {
                         std::ptr::addr_of_mut!(attr),
                     )
                 }
+                || name.format != 8
             {
                 continue;
             }
             // Create null terminated string
-            let name = unsafe { CString::from_raw(name_ptr) };
+            let name = unsafe { String::from_raw_parts(name.value, name.nitems as usize, name.nitems as usize) };
             // Return window data
             return Some(Window {
                 name,
@@ -263,7 +263,8 @@ fn main() {
     let tree = context.tree().unwrap();
     // Iterate over all windows and apply command
     for mut w in tree.into_iter() {
-        if re.captures(w.name().to_str().unwrap()).is_some() {
+        if re.captures(w.name()).is_some() {
+            println!("FOUND");
             match opt {
                 Opt::Resize {
                     regex: _,
