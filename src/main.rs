@@ -20,12 +20,10 @@ impl Drop for Context {
     }
 }
 
-// Tree structure holding the window tree data
-struct Tree<'a> {
+// Window container structure holding all windows
+struct WindowContainer<'a> {
     context: &'a Context,
-    _root: XWindow,
-    _parent: XWindow,
-    children: Vec<XWindow>,
+    windows: Vec<XWindow>,
 }
 
 // Data of window
@@ -84,7 +82,7 @@ impl<'a> Window {
     }
 
     pub fn resync(&mut self) -> Result<(), ()> {
-        // Get window name 
+        // Get window name
         let mut name = unsafe { MaybeUninit::<XTextProperty>::uninit().assume_init() };
         // Get window attributes
         let mut attr = unsafe { MaybeUninit::<XWindowAttributes>::uninit().assume_init() };
@@ -103,46 +101,46 @@ impl<'a> Window {
     }
 }
 
-// Iterator allowing to interate over all child window data of Tree
-struct TreeIterator<'a> {
-    tree: Tree<'a>,
+// Iterator allowing to interate over all valid windows
+struct WindowContainerIterator<'a> {
+    container: WindowContainer<'a>,
     idx: usize,
 }
 
-// Create IntoIterator for all children
-impl<'a> IntoIterator for Tree<'a> {
+// Create IntoIterator for all windows
+impl<'a> IntoIterator for WindowContainer<'a> {
     type Item = Window;
-    type IntoIter = TreeIterator<'a>;
+    type IntoIter = WindowContainerIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        TreeIterator { tree: self, idx: 0 }
+        WindowContainerIterator { container: self, idx: 0 }
     }
 }
 
-// Custom iterator of child window data, only returning children with valid data
-impl<'a> Iterator for TreeIterator<'a> {
+// Custom iterator of child window data, only returning windows with valid data
+impl<'a> Iterator for WindowContainerIterator<'a> {
     type Item = Window;
     fn next(&mut self) -> Option<Self::Item> {
-        while self.idx < self.tree.children.len() {
+        while self.idx < self.container.windows.len() {
             // Get window id
-            let window = self.tree.children[self.idx];
-            self.tree.children[self.idx] = 0;
+            let window = self.container.windows[self.idx];
+            self.container.windows[self.idx] = 0;
             self.idx += 1;
-            // Get window name 
+            // Get window name
             let mut name = unsafe { MaybeUninit::<XTextProperty>::uninit().assume_init() };
             // Get window attributes
             let mut attr = unsafe { MaybeUninit::<XWindowAttributes>::uninit().assume_init() };
             // Get window name
             if 0 == unsafe {
                 XGetWMName(
-                    *self.tree.context.display,
+                    *self.container.context.display,
                     window,
                     std::ptr::addr_of_mut!(name),
                 )
             } || 0
                 == unsafe {
                     XGetWindowAttributes(
-                        *self.tree.context.display,
+                        *self.container.context.display,
                         window,
                         std::ptr::addr_of_mut!(attr),
                     )
@@ -158,7 +156,7 @@ impl<'a> Iterator for TreeIterator<'a> {
                 name,
                 attr,
                 window,
-                display: self.tree.context.display.clone(),
+                display: self.container.context.display.clone(),
             });
         }
         None
@@ -179,7 +177,7 @@ impl Context {
         }
     }
 
-    pub fn tree(&self) -> Result<Tree, ()> {
+    fn children(&self, window: XWindow) -> Result<Vec<XWindow>, ()> {
         // Initialize data for XQueryTree
         let (mut root, mut parent, mut children, mut num_children): (
             XWindow,
@@ -191,26 +189,28 @@ impl Context {
         unsafe {
             if 0 != XQueryTree(
                 *self.display,
-                self.root,
+                window,
                 std::ptr::addr_of_mut!(root),
                 std::ptr::addr_of_mut!(parent),
                 std::ptr::addr_of_mut!(children),
                 &mut num_children,
             ) {
-                Ok(Tree {
-                    context: self,
-                    _root: root,
-                    _parent: parent,
-                    children: Vec::from_raw_parts(
-                        children,
-                        num_children as usize,
-                        num_children as usize,
-                    ),
-                })
+                let mut v = Vec::from_raw_parts(
+                    children,
+                    num_children as usize,
+                    num_children as usize,
+                );
+                let mut c = v.iter().map(|c| self.children(*c)).filter_map(|r| r.ok()).flatten().collect();
+                v.append(&mut c);
+                Ok(v)
             } else {
                 Err(())
             }
         }
+    }
+
+    pub fn windows(&self) -> Result<WindowContainer, ()> {
+        self.children(self.root).map(|r| WindowContainer { context: self, windows: r })
     }
 }
 
@@ -258,11 +258,11 @@ fn main() {
         Opt::Hide { ref regex } => regex::Regex::new(regex).unwrap(),
         Opt::Raise { ref regex } => regex::Regex::new(regex).unwrap(),
     };
-    // Get context and window tree
+    // Get context and window container
     let context = Context::new();
-    let tree = context.tree().unwrap();
+    let container = context.windows().unwrap();
     // Iterate over all windows and apply command
-    for mut w in tree.into_iter() {
+    for mut w in container.into_iter() {
         if re.captures(w.name()).is_some() {
             match opt {
                 Opt::Resize {
