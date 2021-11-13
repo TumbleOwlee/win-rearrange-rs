@@ -1,4 +1,4 @@
-# Win-Rearrange
+# Win-Rearrange-RS
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/TumbleOwlee/ws-dissector-lib/blob/master/LICENSE)
 ![Ubuntu Build](https://github.com/TumbleOwlee/win-rearrange/actions/workflows/rust.yml/badge.svg)
 
